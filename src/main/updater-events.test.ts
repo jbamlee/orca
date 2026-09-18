@@ -89,6 +89,8 @@ function createContext(overrides?: Partial<HandlerContext>): HandlerContext {
     markUpdateAvailableEventPending: vi.fn(),
     markMissingManifestPrereleaseFallbackChecking: vi.fn(),
     performQuitAndInstall: vi.fn(),
+    commitInFlightInstall: vi.fn(),
+    isMacStagingDeferredToInstall: vi.fn(() => false),
     shouldDeferMacQuitForInstall: vi.fn(() => true),
     recordCompletedUpdateCheck: vi.fn(),
     restoreReleaseUpdateSource: vi.fn(),
