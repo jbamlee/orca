@@ -1,0 +1,289 @@
+import { describe, expect, it } from 'vitest'
+import type { ConnectionState, ForegroundNudgeReason, RpcResponse } from '../../transport/types'
+import type { SendRequestOptions } from '../../transport/unvalidated-rpc-request-port'
+import { BRIDGE_MAX_METHOD_CHARS, BRIDGE_MAX_REPLY_PARTS } from './bridge-caps'
+import {
+  BRIDGE_CONNECTION_STATES,
+  BRIDGE_FOREGROUND_NUDGE_REASONS,
+  BRIDGE_PROTOCOL_VERSION,
+  readBridgeClientMessage,
+  readBridgeHostMessage,
+  type BridgeReplyPayload
+} from './bridge-envelope'
+
+const ID = 'AAAAAAAAAAAAAAAAAAAAAA'
+const CONNECTION = {
+  state: 'connected',
+  reconnectAttempt: 0,
+  lastConnectedAt: 1_700_000_000_000,
+  lastInboundAt: null,
+  generation: 2
+}
+const GRANTS = { rpc: { maxPendingRequests: 64, maxSubscriptions: 32 }, native: [] }
+const SUCCESS_PAYLOAD = {
+  id: 'r1',
+  ok: true,
+  result: { worktrees: [] },
+  _meta: { runtimeId: 'runtime-a' }
+}
+
+function readClient(message: unknown): ReturnType<typeof readBridgeClientMessage> {
+  return readBridgeClientMessage(JSON.stringify(message))
+}
+
+function readHost(message: unknown): ReturnType<typeof readBridgeHostMessage> {
+  return readBridgeHostMessage(JSON.stringify(message))
+}
+
+function client(fields: Record<string, unknown>): Record<string, unknown> {
+  return { v: BRIDGE_PROTOCOL_VERSION, ...fields }
+}
+
+describe('client messages', () => {
+  const accepted = [
+    ['ready', { type: 'ready' }],
+    ['request without params', { type: 'request', id: ID, method: 'status.get' }],
+    ['request with params', { type: 'request', id: ID, method: 'status.get', params: { a: 1 } }],
+    [
+      'request with options',
+      {
+        type: 'request',
+        id: ID,
+        method: 'status.get',
+        options: { timeoutMs: 5000, budgetSpansConnect: true, failWhenDisconnected: false }
+      }
+    ],
+    ['subscribe', { type: 'subscribe', id: ID, method: 'terminal.subscribe', params: { t: 'x' } }],
+    [
+      'subscribe wanting binary',
+      { type: 'subscribe', id: ID, method: 'browser.screencast', params: {}, wantsBinary: true }
+    ],
+    ['cancel of a request', { type: 'cancel', id: ID, target: 'request' }],
+    ['cancel of a subscription', { type: 'cancel', id: ID, target: 'subscription' }],
+    ['ack', { type: 'ack', id: ID, seq: 0 }],
+    ['foreground notify', { type: 'notify', name: 'foreground' }],
+    ['foreground notify with a reason', { type: 'notify', name: 'foreground', reason: 'focus' }],
+    [
+      'terminal viewport notify',
+      { type: 'notify', name: 'terminalViewport', terminal: 't1', cols: 80, rows: 24 }
+    ],
+    ['close', { type: 'close' }]
+  ] as const
+
+  for (const [name, fields] of accepted) {
+    it(`accepts ${name}`, () => {
+      expect(readClient(client(fields)).ok).toBe(true)
+    })
+  }
+
+  const refused = [
+    ['a version this shell does not speak', { ...client({ type: 'ready' }), v: 2 }],
+    ['a missing version', { type: 'ready' }],
+    ['an unknown type', client({ type: 'hello' })],
+    ['an id of the wrong length', client({ type: 'cancel', id: 'short', target: 'request' })],
+    [
+      'a method over the cap',
+      client({ type: 'request', id: ID, method: 'm'.repeat(BRIDGE_MAX_METHOD_CHARS + 1) })
+    ],
+    ['an empty method', client({ type: 'request', id: ID, method: '' })],
+    ['an unknown cancel target', client({ type: 'cancel', id: ID, target: 'stream' })],
+    ['a negative ack sequence', client({ type: 'ack', id: ID, seq: -1 })],
+    ['a fractional ack sequence', client({ type: 'ack', id: ID, seq: 1.5 })],
+    ['an unknown notify name', client({ type: 'notify', name: 'battery' })],
+    ['an unknown foreground reason', client({ type: 'notify', name: 'foreground', reason: 'tap' })],
+    [
+      'a viewport of zero columns',
+      client({ type: 'notify', name: 'terminalViewport', terminal: 't1', cols: 0, rows: 24 })
+    ],
+    ['a bare array', []],
+    ['a bare string', 'ready']
+  ] as const
+
+  for (const [name, message] of refused) {
+    it(`refuses ${name}`, () => {
+      expect(readClient(message)).toEqual({ ok: false, refusal: 'unrecognised-message' })
+    })
+  }
+
+  it('accepts a method of exactly the cap', () => {
+    const method = 'm'.repeat(BRIDGE_MAX_METHOD_CHARS)
+    expect(readClient(client({ type: 'request', id: ID, method })).ok).toBe(true)
+  })
+
+  it('keeps an absent params absent, so the host replays the arity the page used', () => {
+    const read = readClient(client({ type: 'request', id: ID, method: 'status.get' }))
+    expect(read.ok && read.message.type === 'request' && 'params' in read.message).toBe(false)
+  })
+
+  it('keeps an explicit null params, which is not the same call', () => {
+    const read = readClient(client({ type: 'request', id: ID, method: 'status.get', params: null }))
+    expect(read.ok && read.message.type === 'request' && read.message.params).toBeNull()
+  })
+
+  it('drops a field it does not know rather than refusing the frame', () => {
+    const read = readClient(client({ type: 'ready', sentAt: 5 }))
+    expect(read).toEqual({ ok: true, message: { v: BRIDGE_PROTOCOL_VERSION, type: 'ready' } })
+  })
+
+  it('carries the frame refusal through rather than relabelling it', () => {
+    expect(readBridgeClientMessage('{')).toEqual({ ok: false, refusal: 'malformed-json' })
+  })
+})
+
+describe('host messages', () => {
+  const accepted = [
+    [
+      'init',
+      { type: 'init', sessionId: 's1', buildId: 'b1', connection: CONNECTION, grants: GRANTS }
+    ],
+    ['state', { type: 'state', connection: CONNECTION }],
+    ['a whole reply', { type: 'reply', id: ID, payload: SUCCESS_PAYLOAD }],
+    [
+      'a failure reply, which is data and not a rejection',
+      {
+        type: 'reply',
+        id: ID,
+        payload: {
+          id: 'r1',
+          ok: false,
+          error: { code: 'forbidden', message: 'no', data: { scope: 'mobile' } },
+          _meta: { runtimeId: 'runtime-a' }
+        }
+      }
+    ],
+    ['a reply part', { type: 'reply', id: ID, part: { i: 0, of: 2 }, chunk: '{"id"' }],
+    ['an event', { type: 'event', id: ID, seq: 0, payload: { type: 'data' } }],
+    ['a binary event', { type: 'event', id: ID, seq: 1, binary: { b64: 'AAAA' } }],
+    ['an unsubscribed end', { type: 'end', id: ID, reason: 'unsubscribed' }],
+    ['a closed end', { type: 'end', id: ID, reason: 'closed' }],
+    ['an overflow end', { type: 'end', id: ID, reason: 'overflow' }],
+    [
+      'an error',
+      {
+        type: 'error',
+        id: ID,
+        error: { category: 'Error', message: 'x', isRpcDeliveryUnknown: true }
+      }
+    ]
+  ] as const
+
+  for (const [name, fields] of accepted) {
+    it(`accepts ${name}`, () => {
+      expect(readHost(client(fields)).ok).toBe(true)
+    })
+  }
+
+  const refused = [
+    [
+      'an init without a build id',
+      client({ type: 'init', sessionId: 's1', buildId: '', connection: CONNECTION, grants: GRANTS })
+    ],
+    [
+      'a connection state the transport does not have',
+      client({ type: 'state', connection: { ...CONNECTION, state: 'idle' } })
+    ],
+    [
+      'a connection snapshot missing its generation',
+      client({
+        type: 'state',
+        connection: {
+          state: 'connected',
+          reconnectAttempt: 0,
+          lastConnectedAt: null,
+          lastInboundAt: null
+        }
+      })
+    ],
+    [
+      'a reply whose payload is not an envelope',
+      client({ type: 'reply', id: ID, payload: { ok: true } })
+    ],
+    [
+      'a part index past the part cap',
+      client({
+        type: 'reply',
+        id: ID,
+        part: { i: BRIDGE_MAX_REPLY_PARTS, of: BRIDGE_MAX_REPLY_PARTS },
+        chunk: 'x'
+      })
+    ],
+    ['a part count of zero', client({ type: 'reply', id: ID, part: { i: 0, of: 0 }, chunk: 'x' })],
+    [
+      'an end for a reason that is not one of the three',
+      client({ type: 'end', id: ID, reason: 'done' })
+    ],
+    [
+      'an error whose code is an object',
+      client({
+        type: 'error',
+        id: ID,
+        error: { category: 'Error', message: 'x', isRpcDeliveryUnknown: false, code: { n: 1 } }
+      })
+    ]
+  ] as const
+
+  for (const [name, message] of refused) {
+    it(`refuses ${name}`, () => {
+      expect(readHost(message)).toEqual({ ok: false, refusal: 'unrecognised-message' })
+    })
+  }
+
+  it('accepts a part index of exactly one below the part cap', () => {
+    const part = { i: BRIDGE_MAX_REPLY_PARTS - 1, of: BRIDGE_MAX_REPLY_PARTS }
+    expect(readHost(client({ type: 'reply', id: ID, part, chunk: 'x' })).ok).toBe(true)
+  })
+
+  it('passes a reply payload through verbatim, including fields it does not know', () => {
+    const payload = {
+      ...SUCCESS_PAYLOAD,
+      streaming: true,
+      _meta: { runtimeId: 'runtime-a', hostVersion: '9.9.9' },
+      hint: 'from a newer host'
+    }
+    const read = readHost(client({ type: 'reply', id: ID, payload }))
+    expect(
+      read.ok && read.message.type === 'reply' && 'payload' in read.message && read.message.payload
+    ).toEqual(payload)
+  })
+})
+
+describe('type pins', () => {
+  it('closes the connection states over the transport union', () => {
+    const asTransport = (value: (typeof BRIDGE_CONNECTION_STATES)[number]): ConnectionState => value
+    const asBridge = (value: ConnectionState): (typeof BRIDGE_CONNECTION_STATES)[number] => value
+    expect(BRIDGE_CONNECTION_STATES.map(asTransport).map(asBridge)).toEqual([
+      ...BRIDGE_CONNECTION_STATES
+    ])
+  })
+
+  it('closes the foreground reasons over the transport union', () => {
+    const asTransport = (
+      value: (typeof BRIDGE_FOREGROUND_NUDGE_REASONS)[number]
+    ): ForegroundNudgeReason => value
+    const asBridge = (
+      value: ForegroundNudgeReason
+    ): (typeof BRIDGE_FOREGROUND_NUDGE_REASONS)[number] => value
+    expect(BRIDGE_FOREGROUND_NUDGE_REASONS.map(asTransport).map(asBridge)).toEqual([
+      ...BRIDGE_FOREGROUND_NUDGE_REASONS
+    ])
+  })
+
+  it('resolves a reply payload to the transport envelope the page hands its callers', () => {
+    const asRpcResponse = (value: BridgeReplyPayload): RpcResponse => value
+    const read = readHost(client({ type: 'reply', id: ID, payload: SUCCESS_PAYLOAD }))
+    const payload =
+      read.ok && read.message.type === 'reply' && 'payload' in read.message
+        ? asRpcResponse(read.message.payload)
+        : null
+    expect(payload).toEqual(SUCCESS_PAYLOAD)
+  })
+
+  it('accepts every option the raw sender declares', () => {
+    const options: SendRequestOptions = {
+      timeoutMs: 1000,
+      budgetSpansConnect: true,
+      failWhenDisconnected: true
+    }
+    expect(readClient(client({ type: 'request', id: ID, method: 'm', options })).ok).toBe(true)
+  })
+})
