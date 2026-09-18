@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionState, ForegroundNudgeReason, RpcResponse } from '../../transport/types'
 import type { SendRequestOptions } from '../../transport/unvalidated-rpc-request-port'
-import { BRIDGE_MAX_METHOD_CHARS, BRIDGE_MAX_REPLY_PARTS } from './bridge-caps'
+import {
+  BRIDGE_MAX_MESSAGE_BYTES,
+  BRIDGE_MAX_METHOD_CHARS,
+  BRIDGE_MAX_REPLY_PARTS
+} from './bridge-caps'
 import {
   BRIDGE_CONNECTION_STATES,
   BRIDGE_FOREGROUND_NUDGE_REASONS,
@@ -289,5 +293,47 @@ describe('type pins', () => {
       failWhenDisconnected: true
     }
     expect(readClient(client({ type: 'request', id: ID, method: 'm', options })).ok).toBe(true)
+  })
+})
+
+describe('the readers bound their two directions differently', () => {
+  const records = Array.from({ length: 5_000 }, (_, index) => ({
+    id: index,
+    name: `worktree-${index}`,
+    branch: 'main',
+    dirty: false
+  }))
+
+  it('accepts a reply carrying more values than the page-to-shell node cap', () => {
+    const read = readHost({
+      v: BRIDGE_PROTOCOL_VERSION,
+      type: 'reply',
+      id: ID,
+      payload: { ...SUCCESS_PAYLOAD, result: records }
+    })
+    expect(
+      read.ok && read.message.type === 'reply' && 'payload' in read.message && read.message.payload
+    ).toEqual({
+      ...SUCCESS_PAYLOAD,
+      result: records
+    })
+  })
+
+  it('refuses the page sending that many values back the other way', () => {
+    expect(
+      readClient(client({ type: 'request', id: ID, method: 'worktree.list', params: { records } }))
+    ).toEqual({ ok: false, refusal: 'too-many-nodes' })
+  })
+
+  it('still refuses a host frame one byte over the frame cap', () => {
+    const padding = 'x'.repeat(BRIDGE_MAX_MESSAGE_BYTES)
+    const raw = JSON.stringify({
+      v: BRIDGE_PROTOCOL_VERSION,
+      type: 'reply',
+      id: ID,
+      payload: { ...SUCCESS_PAYLOAD, result: padding }
+    })
+    expect(raw.length).toBeGreaterThan(BRIDGE_MAX_MESSAGE_BYTES)
+    expect(readBridgeHostMessage(raw)).toEqual({ ok: false, refusal: 'oversized' })
   })
 })

@@ -4,6 +4,7 @@ import {
   BRIDGE_MAX_METHOD_CHARS,
   BRIDGE_MAX_REPLY_PARTS,
   parseBridgeMessage,
+  type BridgeDirection,
   type BridgeRead
 } from './bridge-caps'
 
@@ -13,7 +14,11 @@ import {
  * `v` gates envelope shape and nothing else: capability is gated by `init.grants`, so a shell that
  * learns a new native grant never bumps it. Unknown keys are dropped rather than refused, because
  * the page bundle is served by a desktop that updates independently of the installed shell, and an
- * additive field must not take a working pair offline.
+ * additive field must not take a working pair offline. The rule, in one line: `v` gates
+ * incompatible shape; additive fields never bump `v`.
+ *
+ * The two readers differ in more than their schema: the page's traffic is held to the document
+ * caps, the shell's answers are not. `parseBridgeMessage` documents why.
  */
 export const BRIDGE_PROTOCOL_VERSION = 1
 
@@ -225,16 +230,20 @@ export type BridgeReplyPayload = z.infer<typeof BridgeReplyPayloadSchema>
 
 /** What the RN host accepts from the page. */
 export function readBridgeClientMessage(raw: string): BridgeRead<BridgeClientMessage> {
-  return readMessage(raw, BridgeClientMessageSchema)
+  return readMessage(raw, BridgeClientMessageSchema, 'page-to-shell')
 }
 
 /** What the page accepts from the RN host. */
 export function readBridgeHostMessage(raw: string): BridgeRead<BridgeHostMessage> {
-  return readMessage(raw, BridgeHostMessageSchema)
+  return readMessage(raw, BridgeHostMessageSchema, 'shell-to-page')
 }
 
-function readMessage<TMessage>(raw: string, schema: z.ZodType<TMessage>): BridgeRead<TMessage> {
-  const framed = parseBridgeMessage(raw)
+function readMessage<TMessage>(
+  raw: string,
+  schema: z.ZodType<TMessage>,
+  direction: BridgeDirection
+): BridgeRead<TMessage> {
+  const framed = parseBridgeMessage(raw, direction)
   if (!framed.ok) {
     return framed
   }

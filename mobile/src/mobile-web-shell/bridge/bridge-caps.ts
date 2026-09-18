@@ -4,15 +4,25 @@
  * Every frame crossing the page <-> shell boundary is read through `parseBridgeMessage`. It is the
  * only place these bounds are checked: a second check drifts from the first, and a check placed
  * after `JSON.parse` cannot protect the parse itself.
+ *
+ * The two directions are not symmetric. What the shell reads from the page is attacker-shaped, so
+ * it is walked for depth and node count. What the page reads from the shell is whatever the desktop
+ * answered, where a listing of a few thousand rows is an ordinary reply: a node cap there would
+ * refuse real data, so the frame byte cap and the reply ceiling are that direction's only bounds.
  */
+
+/** Which side sent the frame. The document caps below bound `page-to-shell` only. */
+export const BRIDGE_DIRECTIONS = ['page-to-shell', 'shell-to-page'] as const
+
+export type BridgeDirection = (typeof BRIDGE_DIRECTIONS)[number]
 
 /** Frame ceiling, in UTF-8 bytes of the raw string, checked before `JSON.parse` sees it. */
 export const BRIDGE_MAX_MESSAGE_BYTES = 640 * 1024
 
-/** Nesting levels a frame may carry, counting the frame object itself as one. */
+/** Nesting levels a page-to-shell frame may carry, counting the frame object itself as one. */
 export const BRIDGE_MAX_DEPTH = 16
 
-/** Values a frame may carry, containers and scalars alike. */
+/** Values a page-to-shell frame may carry, containers and scalars alike. */
 export const BRIDGE_MAX_NODES = 20_000
 
 /** Longest method name accepted. The desktop's mobile-scope allowlist owns which names exist. */
@@ -47,9 +57,9 @@ export const BRIDGE_REFUSALS = [
   'oversized',
   /** Not JSON, or nested past what `JSON.parse` itself will walk. */
   'malformed-json',
-  /** Nested past `BRIDGE_MAX_DEPTH`. */
+  /** Nested past `BRIDGE_MAX_DEPTH`, which only `page-to-shell` is held to. */
   'too-deep',
-  /** More values than `BRIDGE_MAX_NODES`. */
+  /** More values than `BRIDGE_MAX_NODES`, which only `page-to-shell` is held to. */
   'too-many-nodes',
   /** Valid JSON that is not a message this protocol version declares. */
   'unrecognised-message',
@@ -125,8 +135,11 @@ function inspectDocument(root: unknown): DocumentRefusal | null {
   return null
 }
 
-/** Parses a frame far enough to hand it to a schema, and no further. */
-export function parseBridgeMessage(raw: string): BridgeRead<unknown> {
+/**
+ * Parses a frame far enough to hand it to a schema, and no further. `direction` has no default: a
+ * new call site has to say which bounds it is asking for.
+ */
+export function parseBridgeMessage(raw: string, direction: BridgeDirection): BridgeRead<unknown> {
   // A UTF-8 byte is never fewer than one code unit, so this refuses the hostile case without
   // walking it.
   if (raw.length > BRIDGE_MAX_MESSAGE_BYTES || utf8ByteLength(raw) > BRIDGE_MAX_MESSAGE_BYTES) {
@@ -138,6 +151,9 @@ export function parseBridgeMessage(raw: string): BridgeRead<unknown> {
   } catch {
     // A nesting bomb that overflows `JSON.parse`'s own recursion lands here rather than below.
     return { ok: false, refusal: 'malformed-json' }
+  }
+  if (direction === 'shell-to-page') {
+    return { ok: true, message: parsed }
   }
   const refusal = inspectDocument(parsed)
   return refusal === null ? { ok: true, message: parsed } : { ok: false, refusal }

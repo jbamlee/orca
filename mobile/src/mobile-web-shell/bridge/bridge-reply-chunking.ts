@@ -150,9 +150,9 @@ export class BridgeReplyAssembler {
 }
 
 /**
- * The reassembled body is checked as a reply payload but not against the frame's depth and node
- * caps: those bound the cost of walking one hostile frame, and this body was already bounded by the
- * reply ceiling.
+ * The reassembled body is checked as a reply payload and against the reply ceiling, which the
+ * assembler already applied, and against nothing else: the document caps bound the page's traffic,
+ * not the desktop's answers.
  */
 function readAssembledPayload(entry: PendingReply): BridgeReplyAssembly {
   const joined = [...entry.chunks.entries()]
