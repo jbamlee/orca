@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   BRIDGE_MAX_DEPTH,
   BRIDGE_MAX_MESSAGE_BYTES,
+  BRIDGE_MAX_METHOD_CHARS,
   BRIDGE_MAX_NODES,
+  BRIDGE_MAX_PENDING_REQUESTS,
   BRIDGE_MAX_REPLY_BYTES,
   BRIDGE_MAX_REPLY_PARTS,
+  BRIDGE_MAX_SUBSCRIPTIONS,
   parseBridgeMessage,
   utf8ByteLength
 } from './bridge-caps'
@@ -111,6 +114,32 @@ describe('parseBridgeMessage document caps', () => {
     expect(parseBridgeMessage('{"v":1,"type":"ready"}')).toEqual({
       ok: true,
       message: { v: 1, type: 'ready' }
+    })
+  })
+})
+
+describe('the agreed numbers', () => {
+  it('pins what a released shell and a served page believe about each other', () => {
+    // These are wire, not tuning: the page bundle and the installed shell agree on them without
+    // ever negotiating, so a change here is a change both sides have to ship for.
+    expect({
+      messageBytes: BRIDGE_MAX_MESSAGE_BYTES,
+      depth: BRIDGE_MAX_DEPTH,
+      nodes: BRIDGE_MAX_NODES,
+      methodChars: BRIDGE_MAX_METHOD_CHARS,
+      pendingRequests: BRIDGE_MAX_PENDING_REQUESTS,
+      subscriptions: BRIDGE_MAX_SUBSCRIPTIONS,
+      replyBytes: BRIDGE_MAX_REPLY_BYTES,
+      replyParts: BRIDGE_MAX_REPLY_PARTS
+    }).toEqual({
+      messageBytes: 655_360,
+      depth: 16,
+      nodes: 20_000,
+      methodChars: 64,
+      pendingRequests: 64,
+      subscriptions: 32,
+      replyBytes: 8_388_608,
+      replyParts: 27
     })
   })
 })

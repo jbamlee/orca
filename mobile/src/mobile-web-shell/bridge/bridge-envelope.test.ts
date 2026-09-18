@@ -248,6 +248,10 @@ describe('host messages', () => {
 })
 
 describe('type pins', () => {
+  it('pins the protocol version both sides send', () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(1)
+  })
+
   it('closes the connection states over the transport union', () => {
     const asTransport = (value: (typeof BRIDGE_CONNECTION_STATES)[number]): ConnectionState => value
     const asBridge = (value: ConnectionState): (typeof BRIDGE_CONNECTION_STATES)[number] => value
