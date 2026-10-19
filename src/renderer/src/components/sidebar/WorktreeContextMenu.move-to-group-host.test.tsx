@@ -47,6 +47,7 @@ const state = vi.hoisted(() => {
     workspaceLineageByChildKey: {},
     updateWorktreeLineage: vi.fn(),
     tabsByWorktree: {},
+    unifiedTabsByWorktree: {},
     ptyIdsByTabId: {},
     browserTabsByWorktree: {},
     keybindings: {},

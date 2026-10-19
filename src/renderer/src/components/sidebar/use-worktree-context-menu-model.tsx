@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store'
-import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
+import { useAllWorktrees, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import type { Worktree } from '../../../../shared/worktree/types'
 import {
   getCyclicProjectedWorktreeLineageIds,
@@ -14,12 +14,7 @@ import {
 } from './workspace-lineage-menu-actions'
 import { parseWorkspaceKey } from '../../../../shared/workspace-scope'
 import { getDeleteStateForWorktreeHost } from './worktree-delete-state-host-match'
-import { getProjectGroupsForRepoHost } from '@/store/slices/project-group-owner-routing'
-import { findIndexedRepoOwnerForHost } from '@/lib/worktree-runtime-owner-index'
-import {
-  getWorktreeExecutionHostId,
-  toRuntimeExecutionHostId
-} from '../../../../shared/execution-host'
+import { useWorktreeMenuProjectGroups } from './use-worktree-menu-project-groups'
 import {
   EMPTY_AGENT_STATUS_BY_PANE_KEY,
   EMPTY_BROWSER_TABS_BY_WORKTREE,
@@ -68,25 +63,9 @@ export function useWorktreeContextMenuModel({
   const setWorktreesPinnedAndReveal = useAppStore((s) => s.setWorktreesPinnedAndReveal)
   const workspaceStatuses = useAppStore((s) => s.workspaceStatuses)
   const openModal = useAppStore((s) => s.openModal)
-  const allProjectGroups = useAppStore((s) => s.projectGroups)
   const createProjectGroup = useAppStore((s) => s.createProjectGroup)
   const moveProjectToGroup = useAppStore((s) => s.moveProjectToGroup)
-  const repoById = useRepoById(worktree.repoId)
-  // Why: repo ids repeat across hosts; the active-workspace lookup can return another host's row.
-  const repo = useAppStore(
-    (s) =>
-      findIndexedRepoOwnerForHost(
-        s.repos,
-        worktree.repoId,
-        worktree.runtimeOwnerEnvironmentId
-          ? toRuntimeExecutionHostId(worktree.runtimeOwnerEnvironmentId)
-          : getWorktreeExecutionHostId(worktree, repoById ?? undefined)
-      ) ?? undefined
-  )
-  const projectGroups = useMemo(
-    () => (repo ? getProjectGroupsForRepoHost(allProjectGroups, repo) : []),
-    [allProjectGroups, repo]
-  )
+  const { repo, projectGroups } = useWorktreeMenuProjectGroups(worktree)
   const deleteState = useAppStore((s) =>
     getDeleteStateForWorktreeHost(worktree, s.deleteStateByWorktreeId)
   )

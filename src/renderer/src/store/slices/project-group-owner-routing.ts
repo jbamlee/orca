@@ -114,9 +114,6 @@ export function isProjectGroupJoinableFromCatalog(
   const copies = projectGroups.filter((group) => group.id === groupId)
   return (
     copies.length === 0 ||
-    copies.some((group) => {
-      const groupCatalog = ipcOrRuntimeTargetForHostId(getProjectGroupHostId(group))
-      return groupCatalog !== null && getRuntimeTargetHostId(groupCatalog) === catalogHostId
-    })
+    copies.some((group) => catalogHostIdFor(getProjectGroupHostId(group)) === catalogHostId)
   )
 }
