@@ -160,6 +160,19 @@ describe('WorktreeContextMenu Move to group across hosts', () => {
     expect(menuItem('Move to group')).toBeUndefined()
   })
 
+  it('keeps an unstamped local workspace on this Mac while a paired twin is active', () => {
+    // The mocked active-workspace selector returns the first row: the paired twin.
+    state.repos = [repoRow('app', 'runtime:linux-env'), repoRow('app', 'local')]
+
+    expect(openMoveToGroupSubmenu(worktreeFixture())).toEqual(['Mac projects'])
+    const macItem = menuItem('Mac projects')
+    act(() => {
+      macItem?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+      macItem?.click()
+    })
+    expect(state.moveProjectToGroup).toHaveBeenCalledWith('app', 'mac-group', undefined, 'local')
+  })
+
   it("uses the clicked workspace's own row when two hosts share its repo id", () => {
     state.repos = [repoRow('app', 'local'), repoRow('app', 'runtime:linux-env')]
 
