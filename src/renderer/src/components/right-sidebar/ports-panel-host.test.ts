@@ -155,7 +155,8 @@ describe('Ports tab visibility', () => {
     id: 'env-managed',
     orcadDeployment: { sshTargetId: 'box', sshTargetGeneration: 1 }
   } as const
-  const environments = [{ id: 'env-paired' }, managed]
+  const linked = { id: 'env-linked', sshAccess: { sshTargetId: 'jump' } } as const
+  const environments = [{ id: 'env-paired' }, managed, linked]
 
   it.each<[string, PortsPanelHost, boolean]>([
     ['a direct SSH workspace', { kind: 'direct-ssh', connectionId: 'box' }, true],
@@ -163,6 +164,11 @@ describe('Ports tab visibility', () => {
     [
       'a workspace on a managed server reached over SSH',
       { kind: 'endpoint', target: { kind: 'environment', environmentId: 'env-managed' } },
+      true
+    ],
+    [
+      'a workspace on a paired server reached over its SSH access',
+      { kind: 'endpoint', target: { kind: 'environment', environmentId: 'env-linked' } },
       true
     ],
     [
@@ -193,7 +199,17 @@ describe('Ports panel forwards', () => {
   const environments = [
     { id: 'env-paired' },
     { id: 'env-ssh', orcadDeployment: { sshTargetId: 'box', sshTargetGeneration: 1, ...ports } },
-    { id: 'env-wsl', orcadDeployment: { kind: 'wsl' as const, distro: 'Ubuntu', ...ports } }
+    { id: 'env-wsl', orcadDeployment: { kind: 'wsl' as const, distro: 'Ubuntu', ...ports } },
+    {
+      id: 'env-linked',
+      sshAccess: {
+        sshTargetId: 'jump',
+        sshTargetGeneration: 1,
+        endpointId: 'tunnel',
+        previousPreferredEndpointId: 'lan',
+        ...ports
+      }
+    }
   ]
   const onServer = (environmentId: string): PortsPanelHost => ({
     kind: 'endpoint',
@@ -204,6 +220,7 @@ describe('Ports panel forwards', () => {
   it.each<[string, PortsPanelHost, string | null]>([
     ['a workspace on a managed server reached over SSH', onServer('env-ssh'), 'box'],
     ['a workspace on a managed WSL server', onServer('env-wsl'), null],
+    ['a workspace on a paired server reached over its SSH access', onServer('env-linked'), 'jump'],
     ['a workspace on a paired server', onServer('env-paired'), null],
     ['a workspace on an unknown server', onServer('env-gone'), null],
     ['a local workspace', { kind: 'endpoint', target: { kind: 'local' } }, null],

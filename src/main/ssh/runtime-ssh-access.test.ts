@@ -195,6 +195,20 @@ describe('independent runtime SSH access coordinator', () => {
     expect(events).not.toContain('claim')
   })
 
+  it('links an SSH target whose saved port forwards the linked host restores', async () => {
+    mocks.preflight.mockReturnValue({
+      blockers: [
+        {
+          code: 'orcad_migration_saved_port_forwards',
+          category: 'client-owned-state',
+          portForwards: [{ localPort: 3000, remoteHost: 'localhost', remotePort: 3000 }]
+        }
+      ]
+    })
+    const result = await linkRuntimeSshAccess(userDataPath, request())
+    expect(result.sshAccess?.sshTargetId).toBe('target')
+  })
+
   it('cancels a pending connect and starts no tunnel when the link is aborted', async () => {
     const controller = new AbortController()
     mocks.connect.mockImplementationOnce(

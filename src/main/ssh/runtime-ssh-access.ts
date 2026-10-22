@@ -54,7 +54,6 @@ function sshAccessBlockerMessage(targetId: string, blocker: OrcadMigrationBlocke
     case 'orcad_migration_direct_ssh_terminal_leases':
       return 'This SSH target still owns terminal sessions. Close them before linking SSH access.'
     case 'orcad_migration_saved_port_forwards':
-      return 'This SSH target has saved port forwards. Remove them, or link SSH access through another SSH target.'
     case 'orcad_migration_target_not_found':
     case 'orcad_migration_target_owned':
     case 'orcad_migration_owner_unrecorded':
@@ -66,10 +65,12 @@ function sshAccessBlockerMessage(targetId: string, blocker: OrcadMigrationBlocke
 function requireAccessOnlyTarget(claims: TargetClaims, targetId: string, environmentId: string) {
   const target = requireTarget(claims, targetId)
   // Omitting the environment bypasses the same-owner shortcut and rechecks direct authority.
+  // Saved forwards don't block: the linked host restores them on connect.
   const blockers = claims
     .preflight(targetId)
     .blockers.filter(
       (entry) =>
+        entry.code !== 'orcad_migration_saved_port_forwards' &&
         !(
           entry.code === 'orcad_migration_target_owned' &&
           getManagedOrcadFenceEnvironmentId(target) === environmentId
