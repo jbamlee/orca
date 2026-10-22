@@ -157,7 +157,7 @@ export function linkRuntimeSshAccess(
       requireAccessOnlyTarget(claims, target.id, environmentId)
       requireFence(claims, environmentId, fence, true)
       // The durable link intent already binds this target to the environment.
-      claims.claim(target.id, environmentId, { ownerRecorded: true })
+      claims.claim(target.id, environmentId, { ownerRecorded: true, allowSavedPortForwards: true })
       await claims.flush()
       let tunnelStarted = false
       let linkCommitted = false
@@ -213,7 +213,11 @@ export function linkRuntimeSshAccess(
 export function unlinkRuntimeSshAccess(
   userDataPath: string,
   input: RuntimeSshAccessUnlinkRequest,
-  options: { invalidateTransport: (environmentId: string) => void | Promise<void> }
+  options: {
+    invalidateTransport: (environmentId: string) => void | Promise<void>
+    /** Closes the host's live forwards and keeps their saved definitions for a relink. */
+    closePortForwards: (sshTargetId: string) => Promise<void>
+  }
 ) {
   const args = RuntimeSshAccessUnlinkRequestSchema.parse(input)
   const environmentId = resolveEnvironment(userDataPath, args.selector).id
@@ -248,12 +252,16 @@ export function unlinkRuntimeSshAccess(
       }
       await claims.flush()
       requireFence(claims, environmentId, access, true)
-      return redactRuntimeEnvironment(
-        completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
-          expectedEnvironment: prepared,
-          requestId: args.requestId
-        })
-      )
+      const unlinked = completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
+        expectedEnvironment: prepared,
+        requestId: args.requestId
+      })
+      // Why: the Ports tab that showed them leaves with the link. After the commit, so a restore
+      // that reads the link finds none.
+      await options.closePortForwards(access.sshTargetId).catch((error: unknown) => {
+        console.warn(`[ssh] Could not close port forwards for ${access.sshTargetId}:`, error)
+      })
+      return redactRuntimeEnvironment(unlinked)
     })
   })
 }

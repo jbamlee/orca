@@ -155,7 +155,7 @@ describe('Ports tab visibility', () => {
     id: 'env-managed',
     orcadDeployment: { sshTargetId: 'box', sshTargetGeneration: 1 }
   } as const
-  const linked = { id: 'env-linked', sshAccess: { sshTargetId: 'jump' } } as const
+  const linked = { id: 'env-linked', sshAccess: { sshTargetId: 'linked-host' } } as const
   const environments = [{ id: 'env-paired' }, managed, linked]
 
   it.each<[string, PortsPanelHost, boolean]>([
@@ -203,7 +203,7 @@ describe('Ports panel forwards', () => {
     {
       id: 'env-linked',
       sshAccess: {
-        sshTargetId: 'jump',
+        sshTargetId: 'linked-host',
         sshTargetGeneration: 1,
         endpointId: 'tunnel',
         previousPreferredEndpointId: 'lan',
@@ -220,7 +220,11 @@ describe('Ports panel forwards', () => {
   it.each<[string, PortsPanelHost, string | null]>([
     ['a workspace on a managed server reached over SSH', onServer('env-ssh'), 'box'],
     ['a workspace on a managed WSL server', onServer('env-wsl'), null],
-    ['a workspace on a paired server reached over its SSH access', onServer('env-linked'), 'jump'],
+    [
+      'a workspace on a paired server reached over its SSH access',
+      onServer('env-linked'),
+      'linked-host'
+    ],
     ['a workspace on a paired server', onServer('env-paired'), null],
     ['a workspace on an unknown server', onServer('env-gone'), null],
     ['a local workspace', { kind: 'endpoint', target: { kind: 'local' } }, null],

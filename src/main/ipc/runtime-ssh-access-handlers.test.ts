@@ -1,11 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ handle: vi.fn(), link: vi.fn(), unlink: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  handle: vi.fn(),
+  link: vi.fn(),
+  unlink: vi.fn(),
+  restoreForwards: vi.fn(),
+  removeAllForwards: vi.fn(async () => {}),
+  broadcastForwards: vi.fn()
+}))
 vi.mock('electron', () => ({ ipcMain: { handle: mocks.handle } }))
 vi.mock('../ssh/runtime-ssh-access', () => ({
   linkRuntimeSshAccess: mocks.link,
   unlinkRuntimeSshAccess: mocks.unlink
 }))
+vi.mock('./ssh/ssh-managed-port-forward-restore', () => ({
+  restoreManagedHostPortForwards: mocks.restoreForwards
+}))
+vi.mock('./ssh/ssh-ipc-context', () => ({
+  getCurrentMainWindow: () => null,
+  portForwardManager: { removeAllForwards: mocks.removeAllForwards }
+}))
+vi.mock('./ssh/ssh-renderer-broadcast', () => ({ broadcastPortForwards: mocks.broadcastForwards }))
 import { registerRuntimeSshAccessHandlers } from './runtime-ssh-access-handlers'
 import { EventEmitter } from 'node:events'
 
@@ -59,8 +74,24 @@ describe('existing paired server SSH access IPC', () => {
     expect(mocks.unlink).toHaveBeenCalledExactlyOnceWith(
       '/test-profile',
       { selector: 'host', requestId: 'unlink-1' },
-      { invalidateTransport }
+      { invalidateTransport, closePortForwards: expect.any(Function) }
     )
+  })
+
+  it("closes the unlinked host's live forwards and tells the renderer", async () => {
+    mocks.unlink.mockImplementation(
+      async (
+        _path: string,
+        _args: unknown,
+        options: { closePortForwards: (id: string) => Promise<void> }
+      ) => options.closePortForwards('ssh-host')
+    )
+    await handler('runtimeEnvironments:unlinkSshAccess')(null, {
+      selector: 'host',
+      requestId: 'unlink-1'
+    })
+    expect(mocks.removeAllForwards).toHaveBeenCalledExactlyOnceWith('ssh-host')
+    expect(mocks.broadcastForwards).toHaveBeenCalledWith(expect.any(Function), 'ssh-host')
   })
 
   it.each([
@@ -103,5 +134,12 @@ describe('existing paired server SSH access IPC', () => {
     const error = new Error('SSH endpoint identity was not verified')
     mocks.link.mockRejectedValue(error)
     await expect(handler('runtimeEnvironments:linkSshAccess')(event, request)).rejects.toBe(error)
+    expect(mocks.restoreForwards).not.toHaveBeenCalled()
+  })
+
+  it("restores the linked host's saved forwards once the link is saved", async () => {
+    mocks.link.mockResolvedValue({ id: 'host' })
+    await handler('runtimeEnvironments:linkSshAccess')(event, request)
+    expect(mocks.restoreForwards).toHaveBeenCalledExactlyOnceWith('ssh-host', { tunnelUp: true })
   })
 })
