@@ -79,12 +79,15 @@ export async function disconnectSshHostForUser(
   await teardown
 }
 
-/** The status bar's Disconnect of a managed server is a Disconnect of the machine it runs on. */
-export async function disconnectManagedHostOfEnvironmentForUser(
-  environment: Pick<KnownRuntimeEnvironment, 'orcadDeployment'>,
+/**
+ * The status bar's Disconnect of a server reached over SSH is a Disconnect of that SSH host,
+ * which also closes the port forwards its connection carries.
+ */
+export async function disconnectSshHostOfEnvironmentForUser(
+  environment: Pick<KnownRuntimeEnvironment, 'orcadDeployment' | 'sshAccess'>,
   runtimeLayer: RuntimeLayer
 ): Promise<void> {
-  const targetId = getOrcadSshDeployment(environment)?.sshTargetId
+  const targetId = getRuntimeSshAccess(environment)?.sshTargetId
   if (targetId) {
     await disconnectSshHostForUser(targetId, runtimeLayer)
   }

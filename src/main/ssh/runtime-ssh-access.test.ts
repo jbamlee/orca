@@ -50,6 +50,7 @@ describe('independent runtime SSH access coordinator', () => {
   let environmentId: string
   let target: SshTarget
   let events: string[]
+  let claimOptions: unknown
   const request = () => ({
     selector: environmentId,
     requestId: 'request',
@@ -65,6 +66,10 @@ describe('independent runtime SSH access coordinator', () => {
         invalidateTransport: () => {
           events.push('invalidate')
           expect(current().sshAccess).toBeUndefined()
+        },
+        closePortForwards: async (sshTargetId) => {
+          expect(current().sshAccess).toBeUndefined()
+          events.push(`close-forwards:${sshTargetId}`)
         }
       }
     )
@@ -96,9 +101,10 @@ describe('independent runtime SSH access coordinator', () => {
         listTargets: () => [target],
         preflight: mocks.preflight,
         flush: mocks.flush,
-        claim: () => {
+        claim: (_targetId: string, _environmentId: string, options: unknown) => {
           expect(current().pendingSshAccessOperation?.operation).toBe('link')
           events.push('claim')
+          claimOptions = options
           target = { ...target, orcadFence: { environmentId: environmentId } }
           return target
         },
@@ -207,6 +213,8 @@ describe('independent runtime SSH access coordinator', () => {
     })
     const result = await linkRuntimeSshAccess(userDataPath, request())
     expect(result.sshAccess?.sshTargetId).toBe('target')
+    // The claim's own empty-target check must let them through too.
+    expect(claimOptions).toMatchObject({ allowSavedPortForwards: true })
   })
 
   it('cancels a pending connect and starts no tunnel when the link is aborted', async () => {
@@ -288,7 +296,7 @@ describe('independent runtime SSH access coordinator', () => {
     await linkRuntimeSshAccess(userDataPath, request())
     events = []
     await unlink()
-    expect(events).toEqual(['invalidate', 'close', 'release', 'flush'])
+    expect(events).toEqual(['invalidate', 'close', 'release', 'flush', 'close-forwards:target'])
     expect(current().endpoints[0].endpoint).toBe(pairing.endpoint)
     expect(current().sshAccess).toBeUndefined()
     expect(target.orcadFence).toBeUndefined()

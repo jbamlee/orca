@@ -39,7 +39,7 @@ import { publicRuntimeEnvironmentWithHostKey } from './runtime-environment-host-
 import { withWslOrcadAccountEnv } from '../../wsl/wsl-orcad-account-env'
 import { clearSshCredentialDeclinedForEnvironment } from '../../ssh/ssh-credential-decline'
 import {
-  disconnectManagedHostOfEnvironmentForUser,
+  disconnectSshHostOfEnvironmentForUser,
   disconnectRuntimeEnvironmentForUser,
   liftSshUserDisconnectForEnvironment
 } from '../ssh/ssh-host-user-disconnect'
@@ -151,8 +151,9 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
       const runtimeLayer = { userDataPath: getUserDataPath(), invalidateTransport }
       disconnectRuntimeEnvironmentForUser(environment.id, runtimeLayer)
       closeLegacySelectorTransport(args.selector, environment.id)
-      // Why: otherwise Settings keeps showing the managed host's SSH connection as live (#30085).
-      await disconnectManagedHostOfEnvironmentForUser(environment, runtimeLayer)
+      // Why: otherwise Settings keeps showing the host's SSH connection as live (#30085), and its
+      // port forwards keep listening.
+      await disconnectSshHostOfEnvironmentForUser(environment, runtimeLayer)
       return { disconnected: redactRuntimeEnvironment(environment) }
     }
   )

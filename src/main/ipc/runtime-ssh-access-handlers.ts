@@ -4,6 +4,14 @@ import {
   RuntimeSshAccessUnlinkRequestSchema
 } from '../../shared/runtime-ssh-access'
 import { linkRuntimeSshAccess, unlinkRuntimeSshAccess } from '../ssh/runtime-ssh-access'
+import { restoreManagedHostPortForwards } from './ssh/ssh-managed-port-forward-restore'
+import { getCurrentMainWindow, portForwardManager } from './ssh/ssh-ipc-context'
+import { broadcastPortForwards } from './ssh/ssh-renderer-broadcast'
+
+async function closeLinkedHostPortForwards(sshTargetId: string): Promise<void> {
+  await portForwardManager?.removeAllForwards(sshTargetId)
+  broadcastPortForwards(getCurrentMainWindow, sshTargetId)
+}
 
 export function registerRuntimeSshAccessHandlers(options: {
   getUserDataPath: () => string
@@ -16,10 +24,13 @@ export function registerRuntimeSshAccessHandlers(options: {
     const cancel = (): void => controller.abort()
     event.sender.once('destroyed', cancel)
     try {
-      return await linkRuntimeSshAccess(options.getUserDataPath(), args, {
+      const linked = await linkRuntimeSshAccess(options.getUserDataPath(), args, {
         signal: controller.signal,
         invalidateTransport: options.invalidateTransport
       })
+      // Why: the link's own connect fired before its access was saved, so it restored nothing.
+      void restoreManagedHostPortForwards(args.sshTargetId)
+      return linked
     } finally {
       event.sender.removeListener('destroyed', cancel)
     }
@@ -27,7 +38,8 @@ export function registerRuntimeSshAccessHandlers(options: {
   ipcMain.handle('runtimeEnvironments:unlinkSshAccess', async (_event, input: unknown) => {
     const args = RuntimeSshAccessUnlinkRequestSchema.parse(input)
     return unlinkRuntimeSshAccess(options.getUserDataPath(), args, {
-      invalidateTransport: options.invalidateTransport
+      invalidateTransport: options.invalidateTransport,
+      closePortForwards: closeLinkedHostPortForwards
     })
   })
 }
