@@ -67,9 +67,9 @@ describe('independent runtime SSH access coordinator', () => {
           events.push('invalidate')
           expect(current().sshAccess).toBeUndefined()
         },
-        closePortForwards: async (sshTargetId) => {
+        endSshSession: async (sshTargetId) => {
           expect(current().sshAccess).toBeUndefined()
-          events.push(`close-forwards:${sshTargetId}`)
+          events.push(`end-session:${sshTargetId}`)
         }
       }
     )
@@ -296,7 +296,7 @@ describe('independent runtime SSH access coordinator', () => {
     await linkRuntimeSshAccess(userDataPath, request())
     events = []
     await unlink()
-    expect(events).toEqual(['invalidate', 'close', 'release', 'flush', 'close-forwards:target'])
+    expect(events).toEqual(['invalidate', 'close', 'end-session:target', 'release', 'flush'])
     expect(current().endpoints[0].endpoint).toBe(pairing.endpoint)
     expect(current().sshAccess).toBeUndefined()
     expect(target.orcadFence).toBeUndefined()
@@ -361,9 +361,30 @@ describe('independent runtime SSH access coordinator', () => {
     mocks.flush.mockRejectedValueOnce(new Error('disk full'))
     await expect(unlink()).rejects.toThrow('disk full')
     expect(target.orcadFence).toBeUndefined()
+    // The link already left the Ports tab, so its session and forwards ended before the failure.
+    expect(events).toContain('end-session:target')
     await unlink()
     expect(events.filter((event) => event === 'release')).toHaveLength(1)
     expect(current().pendingSshAccessOperation).toBeUndefined()
+  })
+
+  it('ends the session even when invalidating the transport fails after the link left', async () => {
+    await linkRuntimeSshAccess(userDataPath, request())
+    const endSshSession = vi.fn(async () => {})
+    await expect(
+      unlinkRuntimeSshAccess(
+        userDataPath,
+        { selector: environmentId, requestId: 'unlink' },
+        {
+          invalidateTransport: () => {
+            throw new Error('transport busy')
+          },
+          endSshSession
+        }
+      )
+    ).rejects.toThrow('transport busy')
+    expect(current().sshAccess).toBeUndefined()
+    expect(endSshSession).toHaveBeenCalledExactlyOnceWith('target')
   })
 
   it('does not release a new owner when retrying an interrupted unlink', async () => {
