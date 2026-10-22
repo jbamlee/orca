@@ -5,13 +5,7 @@ import {
 } from '../../shared/runtime-ssh-access'
 import { linkRuntimeSshAccess, unlinkRuntimeSshAccess } from '../ssh/runtime-ssh-access'
 import { restoreManagedHostPortForwards } from './ssh/ssh-managed-port-forward-restore'
-import { getCurrentMainWindow, portForwardManager } from './ssh/ssh-ipc-context'
-import { broadcastPortForwards } from './ssh/ssh-renderer-broadcast'
-
-async function closeLinkedHostPortForwards(sshTargetId: string): Promise<void> {
-  await portForwardManager?.removeAllForwards(sshTargetId)
-  broadcastPortForwards(getCurrentMainWindow, sshTargetId)
-}
+import { disconnectRegisteredSshTargetInLifecycle } from './ssh/ssh-session-teardown'
 
 export function registerRuntimeSshAccessHandlers(options: {
   getUserDataPath: () => string
@@ -39,7 +33,7 @@ export function registerRuntimeSshAccessHandlers(options: {
     const args = RuntimeSshAccessUnlinkRequestSchema.parse(input)
     return unlinkRuntimeSshAccess(options.getUserDataPath(), args, {
       invalidateTransport: options.invalidateTransport,
-      closePortForwards: closeLinkedHostPortForwards
+      endSshSession: disconnectRegisteredSshTargetInLifecycle
     })
   })
 }

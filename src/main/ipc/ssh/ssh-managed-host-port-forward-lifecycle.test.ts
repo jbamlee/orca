@@ -27,10 +27,11 @@ vi.mock('../../ssh/targets/ssh-target-registry', async (importOriginal) => ({
 
 const { handleSshConnectionStateChange } = await import('./ssh-connection-state-callbacks')
 const { publishManagedServerConnect } = await import('./ssh-host-server-connect')
-const { disconnectRegisteredSshTarget } = await import('./ssh-session-teardown')
+const { disconnectRegisteredSshTarget, disconnectRegisteredSshTargetInLifecycle } =
+  await import('./ssh-session-teardown')
 const { connectInFlight } = await import('./ssh-connect-attempt-registry')
 const { getSshProviderAuthority } = await import('../../ssh/ssh-provider-authority')
-const { clearSshHostServerStatus, setSshHostServerStatus } =
+const { clearSshHostServerStatus, getSshHostServerStatus, setSshHostServerStatus } =
   await import('../../ssh/ssh-host-server-status')
 
 const connected = { targetId: 't1', status: 'connected', error: null, reconnectAttempt: 0 } as const
@@ -76,5 +77,15 @@ describe('saved port forwards on a managed host', () => {
   it('closes the managed server tunnels the session carried', async () => {
     await disconnectRegisteredSshTarget('t1')
     expect(h.closeManagedTunnels).toHaveBeenCalledWith('t1')
+  })
+
+  // Why: an SSH access unlink holds the host's lifecycle queue, and a stale managed verdict would
+  // restore its forwards on a later reconnect with no Ports tab left to show them.
+  it('ends the session for a caller holding the lifecycle queue, forgetting its server verdict', async () => {
+    setSshHostServerStatus('t1', { kind: 'managed', environmentId: 'env-linked' })
+    await disconnectRegisteredSshTargetInLifecycle('t1')
+    expect(h.removeAllForwards).toHaveBeenCalledWith('t1')
+    expect(h.disconnect).toHaveBeenCalledWith('t1')
+    expect(getSshHostServerStatus('t1')).toBeUndefined()
   })
 })

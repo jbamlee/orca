@@ -215,8 +215,8 @@ export function unlinkRuntimeSshAccess(
   input: RuntimeSshAccessUnlinkRequest,
   options: {
     invalidateTransport: (environmentId: string) => void | Promise<void>
-    /** Closes the host's live forwards and keeps their saved definitions for a relink. */
-    closePortForwards: (sshTargetId: string) => Promise<void>
+    /** Ends the host's SSH session within its lifecycle; saved forwards stay for a relink. */
+    endSshSession: (sshTargetId: string) => Promise<void>
   }
 ) {
   const args = RuntimeSshAccessUnlinkRequestSchema.parse(input)
@@ -244,24 +244,27 @@ export function unlinkRuntimeSshAccess(
               expectedEnvironment: environment,
               requestId: args.requestId
             })
-      await options.invalidateTransport(environmentId)
-      await closeOrcadManagedTunnel(environmentId)
+      try {
+        await options.invalidateTransport(environmentId)
+        await closeOrcadManagedTunnel(environmentId)
+      } finally {
+        // Why: the Ports tab left with the link above, so its forwards end with the session that
+        // carries them even when a step fails; a restore in flight drops what it adds once the
+        // connection is gone.
+        await options.endSshSession(access.sshTargetId)
+      }
       const target = requireFence(claims, environmentId, access, true)
       if (target.orcadFence && !claims.release(target.id, environmentId)) {
         throw new Error('The SSH target owner changed before access could be released.')
       }
       await claims.flush()
       requireFence(claims, environmentId, access, true)
-      const unlinked = completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
-        expectedEnvironment: prepared,
-        requestId: args.requestId
-      })
-      // Why: the Ports tab that showed them leaves with the link. After the commit, so a restore
-      // that reads the link finds none.
-      await options.closePortForwards(access.sshTargetId).catch((error: unknown) => {
-        console.warn(`[ssh] Could not close port forwards for ${access.sshTargetId}:`, error)
-      })
-      return redactRuntimeEnvironment(unlinked)
+      return redactRuntimeEnvironment(
+        completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
+          expectedEnvironment: prepared,
+          requestId: args.requestId
+        })
+      )
     })
   })
 }

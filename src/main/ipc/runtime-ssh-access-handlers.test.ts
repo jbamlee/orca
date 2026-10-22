@@ -5,8 +5,7 @@ const mocks = vi.hoisted(() => ({
   link: vi.fn(),
   unlink: vi.fn(),
   restoreForwards: vi.fn(),
-  removeAllForwards: vi.fn(async () => {}),
-  broadcastForwards: vi.fn()
+  endSshSession: vi.fn(async () => {})
 }))
 vi.mock('electron', () => ({ ipcMain: { handle: mocks.handle } }))
 vi.mock('../ssh/runtime-ssh-access', () => ({
@@ -16,11 +15,9 @@ vi.mock('../ssh/runtime-ssh-access', () => ({
 vi.mock('./ssh/ssh-managed-port-forward-restore', () => ({
   restoreManagedHostPortForwards: mocks.restoreForwards
 }))
-vi.mock('./ssh/ssh-ipc-context', () => ({
-  getCurrentMainWindow: () => null,
-  portForwardManager: { removeAllForwards: mocks.removeAllForwards }
+vi.mock('./ssh/ssh-session-teardown', () => ({
+  disconnectRegisteredSshTargetInLifecycle: mocks.endSshSession
 }))
-vi.mock('./ssh/ssh-renderer-broadcast', () => ({ broadcastPortForwards: mocks.broadcastForwards }))
 import { registerRuntimeSshAccessHandlers } from './runtime-ssh-access-handlers'
 import { EventEmitter } from 'node:events'
 
@@ -74,24 +71,9 @@ describe('existing paired server SSH access IPC', () => {
     expect(mocks.unlink).toHaveBeenCalledExactlyOnceWith(
       '/test-profile',
       { selector: 'host', requestId: 'unlink-1' },
-      { invalidateTransport, closePortForwards: expect.any(Function) }
+      // Unlink already holds the host's lifecycle queue, so it ends the session without queueing.
+      { invalidateTransport, endSshSession: mocks.endSshSession }
     )
-  })
-
-  it("closes the unlinked host's live forwards and tells the renderer", async () => {
-    mocks.unlink.mockImplementation(
-      async (
-        _path: string,
-        _args: unknown,
-        options: { closePortForwards: (id: string) => Promise<void> }
-      ) => options.closePortForwards('ssh-host')
-    )
-    await handler('runtimeEnvironments:unlinkSshAccess')(null, {
-      selector: 'host',
-      requestId: 'unlink-1'
-    })
-    expect(mocks.removeAllForwards).toHaveBeenCalledExactlyOnceWith('ssh-host')
-    expect(mocks.broadcastForwards).toHaveBeenCalledWith(expect.any(Function), 'ssh-host')
   })
 
   it.each([
