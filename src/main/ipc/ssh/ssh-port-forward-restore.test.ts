@@ -5,10 +5,12 @@ const h = vi.hoisted(() => {
   const conn = { id: 'conn' }
   const saved: { portForwards?: SavedPortForward[] } = {}
   const active: PortForwardEntry[] = []
+  const environments: { id: string; sshAccess?: { sshTargetId: string } }[] = []
   return {
     conn,
     saved,
     active,
+    environments,
     store: {
       getTarget: vi.fn(() => ({ id: 't1', ...saved })),
       updateTarget: vi.fn((_id: string, update: { portForwards?: SavedPortForward[] }) => {
@@ -63,6 +65,12 @@ vi.mock('./ssh-ipc-context', () => ({
 }))
 vi.mock('./ssh-renderer-broadcast', () => ({ broadcastPortForwards: h.broadcastPortForwards }))
 vi.mock('../../ssh/ssh-host-server-status', () => ({ getSshHostServerStatus: h.hostServerStatus }))
+vi.mock('../../../shared/app-environment', () => ({
+  getAppEnvironment: () => ({ getPath: () => '/user-data' })
+}))
+vi.mock('../../../shared/runtime-environment-store', () => ({
+  listEnvironments: () => h.environments
+}))
 
 import { restorePortForwards } from './ssh-port-forward-persistence'
 import { restoreManagedHostPortForwards } from './ssh-managed-port-forward-restore'
@@ -74,6 +82,8 @@ describe('saved port forward restore', () => {
     vi.clearAllMocks()
     h.active.length = 0
     h.saved.portForwards = [{ ...FORWARD }]
+    h.hostServerStatus.mockReturnValue({ kind: 'managed', environmentId: 'env-1' })
+    h.environments = []
   })
 
   it('closes forwards bound to a replaced transport before re-adding the saved ones', async () => {
@@ -96,6 +106,13 @@ describe('saved port forward restore', () => {
     await Promise.all([restoreManagedHostPortForwards('t1'), restoreManagedHostPortForwards('t1')])
     expect(h.portForwardManager.addForward).toHaveBeenCalledTimes(1)
     expect(h.broadcastPortForwards).toHaveBeenCalledWith(expect.any(Function), 't1')
+  })
+
+  it("restores a host that carries a paired server's SSH access", async () => {
+    h.hostServerStatus.mockReturnValue(undefined)
+    h.environments = [{ id: 'env-paired', sshAccess: { sshTargetId: 't1' } }]
+    await restoreManagedHostPortForwards('t1')
+    expect(h.portForwardManager.addForward).toHaveBeenCalledTimes(1)
   })
 
   it('does nothing for a host that is not managed', async () => {
