@@ -209,6 +209,17 @@ describe('Ports panel forwards', () => {
         previousPreferredEndpointId: 'lan',
         ...ports
       }
+    },
+    {
+      id: 'env-ports-only',
+      sshAccess: {
+        sshTargetId: 'ports-host',
+        sshTargetGeneration: 1,
+        endpointId: 'tunnel',
+        previousPreferredEndpointId: 'lan',
+        portsOnly: true as const,
+        ...ports
+      }
     }
   ]
   const onServer = (environmentId: string): PortsPanelHost => ({
@@ -224,6 +235,11 @@ describe('Ports panel forwards', () => {
       'a workspace on a paired server reached over its SSH access',
       onServer('env-linked'),
       'linked-host'
+    ],
+    [
+      'a workspace on a paired server with an SSH host only for its ports',
+      onServer('env-ports-only'),
+      'ports-host'
     ],
     ['a workspace on a paired server', onServer('env-paired'), null],
     ['a workspace on an unknown server', onServer('env-gone'), null],

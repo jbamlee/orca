@@ -3,7 +3,7 @@ import type { WorktreeOperationRouteState } from '@/lib/worktree-operation-route
 import { hostRouteForAuthority, type HostRoute } from '@/runtime/runtime-client-target'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import {
-  getRuntimeSshAccess,
+  getRuntimePortForwardSshTargetId,
   type KnownRuntimeEnvironment
 } from '../../../../shared/runtime-environments'
 import { isRuntimeOwnedSshTargetId, parseExecutionHostId } from '../../../../shared/execution-host'
@@ -57,7 +57,7 @@ export function portsPanelHostForOwnerKey(key: HostAuthorityKey | null): PortsPa
   return { kind: 'host-scoped', route, executionHostId: authority.at }
 }
 
-/** The Ports tab shows for a workspace on an SSH host, or on a server reached over SSH. */
+/** The Ports tab shows for a workspace on an SSH host, or on a server with an SSH host for its ports. */
 export function portsPanelReachesSshHost(
   host: PortsPanelHost,
   environments: readonly { id: string; orcadDeployment?: unknown; sshAccess?: unknown }[]
@@ -82,7 +82,7 @@ export function portsPanelReachesSshHost(
   }
 }
 
-/** Servers scan their ports, but client forwards ride the SSH host of a managed server or a paired server's SSH access (#29153). */
+/** Servers scan their ports, but client forwards ride the SSH host of a managed server or a paired server's SSH access, ports-only included (#29153). */
 export function portsPanelForwardTargetId(
   host: PortsPanelHost,
   environments: readonly ({ id: string } & Pick<
@@ -95,5 +95,5 @@ export function portsPanelForwardTargetId(
   }
   const { environmentId } = host.target
   const environment = environments.find((candidate) => candidate.id === environmentId)
-  return (environment && getRuntimeSshAccess(environment)?.sshTargetId) || null
+  return (environment && getRuntimePortForwardSshTargetId(environment)) || null
 }

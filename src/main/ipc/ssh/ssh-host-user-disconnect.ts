@@ -3,6 +3,7 @@ import { getManagedOrcadFenceEnvironmentId } from '../../../shared/managed-orcad
 import { listEnvironments } from '../../../shared/runtime-environment-store'
 import {
   getOrcadSshDeployment,
+  getRuntimePortForwardSshTargetId,
   getRuntimeSshAccess,
   type KnownRuntimeEnvironment
 } from '../../../shared/runtime-environments'
@@ -80,14 +81,14 @@ export async function disconnectSshHostForUser(
 }
 
 /**
- * The status bar's Disconnect of a server reached over SSH is a Disconnect of that SSH host,
- * which also closes the port forwards its connection carries.
+ * The status bar's Disconnect of a server reached over SSH, or forwarding its ports over SSH, is a
+ * Disconnect of that SSH host, which also closes the port forwards its connection carries.
  */
 export async function disconnectSshHostOfEnvironmentForUser(
   environment: Pick<KnownRuntimeEnvironment, 'orcadDeployment' | 'sshAccess'>,
   runtimeLayer: RuntimeLayer
 ): Promise<void> {
-  const targetId = getRuntimeSshAccess(environment)?.sshTargetId
+  const targetId = getRuntimePortForwardSshTargetId(environment)
   if (targetId) {
     await disconnectSshHostForUser(targetId, runtimeLayer)
   }
@@ -101,6 +102,14 @@ export async function liftSshUserDisconnectForEnvironment(
   if (managedHostId && isSshUserDisconnected(managedHostId)) {
     // Host Connect republishes managed status and restores forwards removed by Disconnect.
     await connectRegisteredSshTarget(managedHostId)
+    return
+  }
+  const access = environment.sshAccess
+  if (access?.portsOnly && isSshUserDisconnected(access.sshTargetId)) {
+    // Why not awaited: the server connection never depends on the host that carries its forwards.
+    void connectRegisteredSshTarget(access.sshTargetId).catch((error: unknown) => {
+      console.warn(`[ssh] Could not reconnect ${access.sshTargetId} for port forwards:`, error)
+    })
     return
   }
   clearSshUserDisconnectedForEnvironment(environment)

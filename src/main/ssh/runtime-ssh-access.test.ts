@@ -253,6 +253,24 @@ describe('independent runtime SSH access coordinator', () => {
     expect(invalidateTransport).toHaveBeenCalledTimes(2)
   })
 
+  it('proves a ports-only host reaches the server, then leaves the server connection alone', async () => {
+    const invalidateTransport = vi.fn()
+    const portsOnly = { ...request(), portsOnly: true as const }
+    const result = await linkRuntimeSshAccess(userDataPath, portsOnly, { invalidateTransport })
+    expect(events).toEqual(['flush', 'claim', 'flush', 'connect', 'tunnel', 'verify', 'close'])
+    expect(result.sshAccess).toMatchObject({ sshTargetId: 'target', portsOnly: true })
+    expect(result.connectionDependency).toBeUndefined()
+    // A retried link changes nothing either.
+    await linkRuntimeSshAccess(userDataPath, portsOnly, { invalidateTransport })
+    await expect(linkRuntimeSshAccess(userDataPath, request())).rejects.toThrow('different')
+    expect(mocks.ensure).not.toHaveBeenCalled()
+
+    events = []
+    await unlink()
+    expect(events).toEqual(['close', 'end-session:target', 'release', 'flush'])
+    expect(invalidateTransport).not.toHaveBeenCalled()
+  })
+
   it('rejects changed request tuple after a completed link', async () => {
     await linkRuntimeSshAccess(userDataPath, request())
     await expect(

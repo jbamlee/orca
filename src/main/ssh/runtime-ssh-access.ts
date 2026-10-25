@@ -137,20 +137,24 @@ export function linkRuntimeSshAccess(
           environment.pendingSshAccessOperation ||
           access.requestId !== args.requestId ||
           access.sshTargetId !== args.sshTargetId ||
-          access.remotePort !== args.remotePort
+          access.remotePort !== args.remotePort ||
+          access.portsOnly !== args.portsOnly
         ) {
           throw new Error('This server already has a different SSH access request.')
         }
         requireFence(claims, environmentId, access)
-        await ensureOrcadManagedTunnel(userDataPath, environmentId)
-        requireFence(claims, environmentId, access)
-        await options.invalidateTransport?.(environmentId)
+        if (!access.portsOnly) {
+          await ensureOrcadManagedTunnel(userDataPath, environmentId)
+          requireFence(claims, environmentId, access)
+          await options.invalidateTransport?.(environmentId)
+        }
         return redactRuntimeEnvironment(resolveEnvironment(userDataPath, environmentId))
       }
       const prepared = prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
         expectedEnvironment: environment,
         requestId: args.requestId,
         remotePort: args.remotePort,
+        ...(args.portsOnly ? { portsOnly: true as const } : {}),
         ...fence
       })
       await claims.flush()
@@ -198,7 +202,10 @@ export function linkRuntimeSshAccess(
           })
         )
         linkCommitted = true
-        await options.invalidateTransport?.(environmentId)
+        // Ports only: the tunnel just proved this host reaches the server, whose connection stays.
+        await (args.portsOnly
+          ? closeOrcadManagedTunnel(environmentId)
+          : options.invalidateTransport?.(environmentId))
         return linked
       } catch (error) {
         if (tunnelStarted && !linkCommitted) {
@@ -245,7 +252,9 @@ export function unlinkRuntimeSshAccess(
               requestId: args.requestId
             })
       try {
-        await options.invalidateTransport(environmentId)
+        if (!access.portsOnly) {
+          await options.invalidateTransport(environmentId)
+        }
         await closeOrcadManagedTunnel(environmentId)
       } finally {
         // Why: the Ports tab left with the link above, so its forwards end with the session that
