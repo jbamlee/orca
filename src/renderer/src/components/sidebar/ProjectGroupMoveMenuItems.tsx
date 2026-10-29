@@ -35,11 +35,11 @@ export function ProjectGroupMoveMenuItems({
   )
   return (
     <>
-      {projectGroups.map((group) => {
-        const host = hostContexts?.get(group.id)
+      {projectGroups.map((group, index) => {
+        const host = hostContexts?.[index]
         return (
           <DropdownMenuItem
-            key={group.id}
+            key={`${group.executionHostId ?? group.connectionId ?? ''}:${group.id}`}
             disabled={currentGroupId === group.id}
             onSelect={() => onMove(group.id)}
           >

@@ -96,6 +96,12 @@ describe('ProjectGroupMoveMenuItems', () => {
     ).toEqual(['Group AOrca A', 'Group BOrca B'])
   })
 
+  it('names both computers when each has a copy of the same group id', () => {
+    expect(
+      renderItems([group('a', 'Group', 'local'), group('a', 'Group', 'runtime:orca-b')])
+    ).toEqual(['GroupOrca A', 'GroupOrca B'])
+  })
+
   it('lists only names outside the sidebar, where no host registry names the computers', () => {
     expect(
       renderItems([group('a', 'Group A', 'local'), group('b', 'Group B', 'runtime:orca-b')], null)

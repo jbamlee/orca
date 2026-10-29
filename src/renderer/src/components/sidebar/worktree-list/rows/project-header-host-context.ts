@@ -67,16 +67,15 @@ function createHostContextResolver(sources: HostContextSources): HostContextReso
   }
 }
 
-/** Each project group's computer, keyed by group id; empty unless the groups span computers. */
+/** Each project group's computer, in the groups' order; empty unless the groups span computers. */
 export function getProjectGroupHostContexts(
   args: HostContextSources & { groups: readonly ProjectGroupHostRecord[] }
-): ReadonlyMap<string, ProjectHeaderHostContext> {
+): readonly ProjectHeaderHostContext[] {
   const resolver = createHostContextResolver(args)
-  const contexts = new Map(
-    args.groups.map((group) => [group.id, resolver.contextFor(getRepoExecutionHostId(group))])
-  )
+  // Why: by position, since same-id copies of a group can sit on several computers (#30045).
+  const contexts = args.groups.map((group) => resolver.contextFor(getRepoExecutionHostId(group)))
   // Why: a group lives on the computer that made it, which only matters once groups come from several.
-  return new Set([...contexts.values()].map(({ hostId }) => hostId)).size > 1 ? contexts : new Map()
+  return new Set(contexts.map(({ hostId }) => hostId)).size > 1 ? contexts : []
 }
 
 export function getProjectHeaderHostContexts(
