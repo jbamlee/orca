@@ -132,3 +132,8 @@ export type Row =
 export function getHeaderDragRepo(row: GroupHeaderRow): Repo | undefined {
   return row.repeated ? undefined : (row.anchorRepo ?? row.repo)
 }
+
+/** The registration whose Project Group places this header; a host's copy keeps the merged header's. */
+export function getHeaderProjectGroupRepo(row: GroupHeaderRow): Repo | undefined {
+  return row.projectGroupRepo ?? row.anchorRepo
+}

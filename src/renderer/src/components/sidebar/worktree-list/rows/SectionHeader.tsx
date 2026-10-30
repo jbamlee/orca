@@ -17,6 +17,7 @@ import type {
 } from '../../../../../../shared/worktree/types'
 import {
   getHeaderDragRepo,
+  getHeaderProjectGroupRepo,
   type GroupHeaderRow,
   type WorktreeGroupBy
 } from '../../../../../../shared/sidebar-list/row-types'
@@ -386,7 +387,7 @@ export function renderWorktreeSectionHeaderRow(args: {
             {row.repo && ctx.groupBy === 'repo' ? (
               <RepoHeaderProjectActionsMenu
                 repo={row.repo}
-                projectGroupRepo={row.projectGroupRepo}
+                projectGroupRepo={getHeaderProjectGroupRepo(row)}
                 label={label}
                 projectGroups={ctx.projectGroups}
                 actions={ctx.projectActions}
